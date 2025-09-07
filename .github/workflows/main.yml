@@ -1,3 +1,4 @@
+```yaml
 name: Create YouTube Plus app
 
 on:
@@ -307,14 +308,6 @@ jobs:
 
           cyan -i youtube.ipa -o YouTubePlus_${{ inputs.tweak_version }}.ipa -uwef $tweaks -n "${{ inputs.display_name }}" -b ${{ inputs.bundle_id }}
 
-      - name: Upload to GitHub Releases
-        uses: softprops/action-gh-release@v2.0.1
-        with:
-          tag_name: ytp-${{ github.run_number }}
-          name: YouTubePlus v${{ inputs.tweak_version }} (${{ github.run_number }})
-          files: YouTubePlus_${{ inputs.tweak_version }}.ipa
-          draft: true
-
       - name: Install jq
         run: brew install jq
 
@@ -380,14 +373,17 @@ jobs:
           jq --argjson new "${news_item}" '.news |= [$new] + .' apps.json > temp.json && mv temp.json apps.json
           cd ..
 
-      - name: Commit and push updated apps.json
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add main/apps.json
-          git commit -m "Update apps.json for YouTube ${{ env.YT_VERSION }} with YTLite ${{ inputs.tweak_version }}"
-          git push
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2.0.1
+        with:
+          tag_name: ytp-${{ github.run_number }}
+          name: YouTubePlus v${{ inputs.tweak_version }} (${{ github.run_number }})
+          files: |
+            YouTubePlus_${{ inputs.tweak_version }}.ipa
+            main/apps.json
+          draft: true
 
       - name: Output Release URL
         run: |
           echo "::notice::Release available at: https://github.com/${{ github.repository }}/releases"
+```
