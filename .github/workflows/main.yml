@@ -315,6 +315,79 @@ jobs:
           files: YouTubePlus_${{ inputs.tweak_version }}.ipa
           draft: true
 
+      - name: Install jq
+        run: brew install jq
+
+      - name: Extract YouTube version and generate updated apps.json
+        run: |
+          # Extract YT version
+          unzip -q "${{ github.workspace }}/youtube.ipa" -d temp_extract
+          yt_version=$(plutil -extract CFBundleShortVersionString raw "temp_extract/Payload/YouTube.app/Info.plist")
+          echo "YT_VERSION=$yt_version" >> $GITHUB_ENV
+          rm -rf temp_extract
+
+          tweak_version="${{ inputs.tweak_version }}"
+          download_url="https://github.com/${{ github.repository }}/releases/download/ytp-${{ github.run_number }}/YouTubePlus_${tweak_version}.ipa"
+          size=$(stat -f%z "${{ github.workspace }}/YouTubePlus_${tweak_version}.ipa")
+          current_date=$(date +%Y-%m-%d)
+          iso_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Build dynamic tweaks list
+          tweaks_list="• YTLite"
+          if [ "${{ inputs.enable_youpip }}" = "true" ]; then tweaks_list="$tweaks_list\n• YouPiP"; fi
+          if [ "${{ inputs.enable_ytuhd }}" = "true" ]; then tweaks_list="$tweaks_list\n• YTUHD"; fi
+          if [ "${{ inputs.enable_yq }}" = "true" ]; then tweaks_list="$tweaks_list\n• YouQuality"; fi
+          if [ "${{ inputs.enable_ryd }}" = "true" ]; then tweaks_list="$tweaks_list\n• Return YouTube Dislikes"; fi
+          if [ "${{ inputs.enable_demc }}" = "true" ]; then tweaks_list="$tweaks_list\n• DontEatMyContent"; fi
+          # Hardcode additional tweaks as per the example JSON
+          tweaks_list="$tweaks_list\n• iSponsorBlock\n• YouRememberCaption\n• YTNoTracking\n• YTUnShorts\n• YTNoCheckLocalNetwork\n• BigYTMiniPlayer\n• YTSpeed\n• YTHoldForSpeed\n• YTVideoOverlay\n• YTNoModernUI\n• OLEDDarkmode\n• OLDDarkmode\n• LowContrastMode\n• YTNoSuggestedVideo"
+
+          localized_desc="YTLite with more features!\n\nYTLitePlus is an enhanced Youtube app that offers a superior Youtube experience, combining YTLite (by @dayanch96) with numerous other tweaks :\n\n${tweaks_list}\n\nCredit\n\n@Balackburn, @bhackel, @Deci8BelioS, @matt911, @arichornloverALT, @Macleykun, @AlexInABox, @SKEIDs, @VictorxD70, @Glenta, @zSaaiq, @MrAlucardDante, @gototheskinny, @asdfzxcvbn, @dayanch96, @ssuesskind, @MiRO92, @qnblackcat, @PoomSmart, @level3tjg, @BandarHL, @Galactic-Dev, @julioverne, @hbang, @Lyvendia, @therealFoxster, @ichitaso, @AhmedBafkir, @CokePokes, @ISnackable"
+
+          version_desc="Current YouTube IPA: \"${yt_version}\"  \r\nCurrent YTLite Version: \"${tweak_version}\"  \r\nCurrent App Compatibility: \"iOS/iPadOS 15.0\" or later\r\n\r\nRELEASE ${yt_version}•${tweak_version}: (${current_date})\r\n\r\n• Updated Youtube to \"${yt_version}\"\r\n• Updated YTLite to \"${tweak_version}\"\r\n\r\nIssues in this Release:\r\n• LowContrastMode does not work *(Compatible only with YouTube v17.33.2•v17.38.10)*\r\n\r\nGitHub Release\r\n\"${download_url}\""
+
+          # Update apps.json
+          cd main
+          jq --arg version "${yt_version}" --arg date "${current_date}" --arg vdesc "${version_desc}" --arg ldesc "${localized_desc}" --argjson size "${size}" '.apps[0].version = $version | .apps[0].versionDate = $date | .apps[0].versionDescription = $vdesc | .apps[0].localizedDescription = $ldesc | .apps[0].size = $size' apps.json > temp.json && mv temp.json apps.json
+
+          # Create new version object
+          new_version=$(jq -n \
+            --arg v "${yt_version}" \
+            --arg d "${current_date}" \
+            --arg ldesc "${version_desc}" \
+            --arg url "${download_url}" \
+            --argjson s "${size}" \
+            '{version: $v, date: $d, localizedDescription: $ldesc, downloadURL: $url, size: $s}')
+
+          # Prepend to versions array
+          jq --argjson new "${new_version}" '.apps[0].versions |= [$new] + .' apps.json > temp.json && mv temp.json apps.json
+
+          # Create news item
+          news_title="${yt_version}-${tweak_version} - YTLitePlus  $(date +%d/%m/%y)"
+          news_item=$(jq -n \
+            --arg appID "com.google.ios.youtube" \
+            --arg caption "Update of YTLitePlus just got released!" \
+            --arg date "${iso_date}" \
+            --arg identifier "release-${yt_version}-${tweak_version}" \
+            --arg imageURL "https://raw.githubusercontent.com/YTLitePlus/YTLitePlus-Altstore/main/screenshots/news/new_release.png" \
+            --arg notify true \
+            --arg tintColor "000000" \
+            --arg title "${news_title}" \
+            --arg url "https://github.com/${{ github.repository }}/releases/tag/ytp-${{ github.run_number }}" \
+            '{appID: $appID, caption: $caption, date: $date, identifier: $identifier, imageURL: $imageURL, notify: ($notify == "true"), tintColor: $tintColor, title: $title, url: $url}')
+
+          # Prepend to news array
+          jq --argjson new "${news_item}" '.news |= [$new] + .' apps.json > temp.json && mv temp.json apps.json
+          cd ..
+
+      - name: Commit and push updated apps.json
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add main/apps.json
+          git commit -m "Update apps.json for YouTube ${{ env.YT_VERSION }} with YTLite ${{ inputs.tweak_version }}"
+          git push
+
       - name: Output Release URL
         run: |
           echo "::notice::Release available at: https://github.com/${{ github.repository }}/releases"
